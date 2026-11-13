@@ -1,9 +1,12 @@
 const vscode = require('vscode');
+const fs = require('fs');
+const path = require('path');
 const { randomBytes } = require('crypto');
 const { calendarHtml } = require('./calendarHtml');
 
 const BAR_WIDTH = 10;
 const HOLIDAY_TTL_MS = 7 * 24 * 3600 * 1000;
+const MIN_REFRESH_MS = 60_000;
 const NON_BUDGET_KEYS = new Set(['chat', 'completions']);
 
 function bar(frac) {
@@ -71,12 +74,19 @@ function activate(context) {
   const monthItem = vscode.window.createStatusBarItem('copilotUsageBars.month', vscode.StatusBarAlignment.Right, 100001);
   const dayItem = vscode.window.createStatusBarItem('copilotUsageBars.day', vscode.StatusBarAlignment.Right, 100000);
   monthItem.name = 'Copilot monthly usage';
-  dayItem.name = 'Copilot daily pace';
+  dayItem.name = 'Copilot daily limit';
   monthItem.command = dayItem.command = 'copilotUsageBars.refresh';
   context.subscriptions.push(out, monthItem, dayItem);
 
+  monthItem.text = 'Monthly usage …';
+  dayItem.text = 'Daily limit …';
+  monthItem.show();
+  dayItem.show();
+
   let busy = false;
   let lastRun = 0;
+  let pending;
+  context.subscriptions.push({ dispose: () => clearTimeout(pending) });
 
   async function bankHolidays() {
     const region = cfg().get('bankHolidayRegion');
@@ -216,6 +226,15 @@ function activate(context) {
 
   async function refresh(interactive = false) {
     if (busy) return;
+    const wait = MIN_REFRESH_MS - (Date.now() - lastRun);
+    if (!interactive && wait > 0) {
+      // Coalesce everything inside the cooldown into one refresh when it ends.
+      pending ??= setTimeout(() => {
+        pending = undefined;
+        refresh(false);
+      }, wait);
+      return;
+    }
     busy = true;
     lastRun = Date.now();
     try {
@@ -285,9 +304,9 @@ function activate(context) {
       const usedToday = Math.max(0, base.remaining - remaining);
       const frac = budget > 0 ? usedToday / budget : usedToday > 0 ? 1 : 0;
 
-      dayItem.text = `Daily pace ${bar(frac)} ${Math.round(frac * 100)}% (${fmt(usedToday)}${unit} / ${fmt(budget)}${unit})`;
+      dayItem.text = `Daily limit ${bar(frac)} ${Math.round(frac * 100)}% (${fmt(usedToday)}${unit} / ${fmt(budget)}${unit})`;
       dayItem.tooltip = new vscode.MarkdownString(
-        `**Daily pace**\n\n${fmt(usedToday)}${unit} used today of a ${fmt(budget)}${unit} budget\n\n` +
+        `**Daily limit**\n\n${fmt(usedToday)}${unit} used today of a ${fmt(budget)}${unit} budget\n\n` +
           `Start-of-day remaining ${fmt(base.remaining)}${unit} / ${daysLeft} working day${daysLeft === 1 ? '' : 's'} left` +
           `${workingToday ? ' (incl. today)' : ' (today is a rest day)'}\n\n` +
           `Baseline is the first reading seen each day, so usage before VS Code started is not counted.`
@@ -318,6 +337,20 @@ function activate(context) {
       if (e.affectsConfiguration('copilotUsageBars')) refresh(false);
     })
   );
+
+  // VS Code rewrites a chat's transcript under chatSessions/ after each turn; refresh once writes settle.
+  const storageRoot = path.join(path.dirname(path.dirname(context.globalStorageUri.fsPath)), 'workspaceStorage');
+  let settle;
+  try {
+    const watcher = fs.watch(storageRoot, { recursive: true }, (_evt, file) => {
+      if (!file || !String(file).includes('chatSessions')) return;
+      clearTimeout(settle);
+      settle = setTimeout(() => refresh(false), 8_000);
+    });
+    context.subscriptions.push({ dispose: () => { watcher.close(); clearTimeout(settle); } });
+  } catch (e) {
+    out.appendLine(`chat activity watch failed: ${e.message}`);
+  }
 
   const timer = setInterval(() => refresh(false), Math.max(1, cfg().get('refreshMinutes')) * 60_000);
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
