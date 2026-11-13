@@ -1,0 +1,54 @@
+{
+  "name": "copilot-usage-bars",
+  "displayName": "Copilot Usage Bars",
+  "description": "Status bar progress bars: monthly Copilot usage and daily pacing.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": { "vscode": "^1.90.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "copilotUsageBars.refresh", "title": "Copilot Usage Bars: Refresh" },
+      { "command": "copilotUsageBars.signIn", "title": "Copilot Usage Bars: Sign in to GitHub" },
+      { "command": "copilotUsageBars.showLog", "title": "Copilot Usage Bars: Show Log" },
+      { "command": "copilotUsageBars.addDaysOff", "title": "Copilot Usage Bars: Add Days Off" },
+      { "command": "copilotUsageBars.removeDaysOff", "title": "Copilot Usage Bars: Remove Days Off" },
+      { "command": "copilotUsageBars.openCalendar", "title": "Copilot Usage Bars: Days Off Calendar" }
+    ],
+    "configuration": {
+      "title": "Copilot Usage Bars",
+      "properties": {
+        "copilotUsageBars.refreshMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "How often to poll Copilot quota."
+        },
+        "copilotUsageBars.quotaKey": {
+          "type": "string",
+          "default": "premium_interactions",
+          "description": "Key in quota_snapshots to track. Falls back to the first limited non-chat/completions snapshot if absent. See the log for available keys."
+        },
+        "copilotUsageBars.bankHolidayRegion": {
+          "type": "string",
+          "enum": ["england-and-wales", "scotland", "northern-ireland"],
+          "default": "england-and-wales",
+          "description": "UK region whose bank holidays are excluded from working days."
+        },
+        "copilotUsageBars.extraDaysOff": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra days off excluded from working days. Each entry is YYYY-MM-DD or START/END (YYYY-MM-DD/YYYY-MM-DD). Edited via the Add/Remove Days Off commands."
+        },
+        "copilotUsageBars.githubScopes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["user:email"],
+          "description": "GitHub OAuth scopes requested from VS Code's built-in GitHub sign-in."
+        }
+      }
+    }
+  }
+}
